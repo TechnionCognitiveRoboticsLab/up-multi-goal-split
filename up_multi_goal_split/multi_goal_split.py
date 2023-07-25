@@ -18,6 +18,7 @@ import unified_planning as up
 from unified_planning.engines.mixins.compiler import CompilationKind, CompilerMixin
 from unified_planning.engines.results import CompilerResult
 from unified_planning.model.problem_kind import ProblemKind
+import unified_planning.exceptions
 from typing import List, Dict, Union, Optional
 import unified_planning.engines as engines
 from unified_planning.engines import Credits
@@ -85,6 +86,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         CompilerMixin.__init__(self, CompilationKind.MULTI_GOAL_SPLIT)
         self.compilation_type = type
         self.goals = goals # TODO: get this from the multi-goal problem class when we have it
+        self.BIGNUM = 1000
         
     @staticmethod
     def get_credits(**kwargs) -> Optional['Credits']:
@@ -113,7 +115,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
 
     @staticmethod
     def supports(problem_kind):
-        return problem_kind <= MultiGoalSplit.supported_kind()    
+        return problem_kind <= MultiGoalSplit.supported_kind()
     
     def _compile(self, problem: "up.model.AbstractProblem", compilation_kind: "up.engines.CompilationKind") -> CompilerResult:
         new_to_old: Dict[Action, Action] = {}
@@ -165,7 +167,19 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         split_action.add_effect(split_fluent, True)
         new_problem.add_action(split_action)
 
+
+        new_action_costs_dict = {split_action : 0}
+
         for action in problem.actions:
+            original_action_cost = 1
+            for qm in problem.quality_metrics:
+                if qm.is_minimize_action_costs():
+                    original_action_cost = qm.get_action_cost(action)
+                elif qm.is_minimize_sequential_plan_length():
+                    original_action_cost = 1
+                else:
+                    unified_planning.exceptions.UPUsageError("can not handle metric ", qm)
+
             d = {}
             for p in action.parameters:
                 d[p.name] = p.type
@@ -180,6 +194,13 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 for i,g in enumerate(self.goals):
                     together_action.add_effect(fsub.substitute(effect.fluent, fluent_map, i), effect.value)
             new_problem.add_action(together_action)
+            new_to_old[together_action] = action
+
+            if self.compilation_type == MultiGoalSplitType.WCD:
+                new_cost = original_action_cost * len(self.goals) * self.BIGNUM - 1
+            elif self.compilation_type == MultiGoalSplitType.CENTROID:
+                new_cost = 0
+            new_action_costs_dict[together_action] = new_cost
 
             for i,g in enumerate(self.goals):
                 goal_name = "g" + str(i)
@@ -191,7 +212,15 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 for effect in action.effects:
                     new_action.add_effect(fsub.substitute(effect.fluent, fluent_map, i), effect.value)
                 new_problem.add_action(new_action)
+
+                if self.compilation_type == MultiGoalSplitType.WCD:
+                    new_cost = original_action_cost * self.BIGNUM 
+                elif self.compilation_type == MultiGoalSplitType.CENTROID:
+                    new_cost = original_action_cost
+                new_action_costs_dict[new_action] = new_cost
+                new_to_old[new_action] = action
         
+        new_problem.add_quality_metric(MinimizeActionCosts(new_action_costs_dict))
 
         
         return CompilerResult(

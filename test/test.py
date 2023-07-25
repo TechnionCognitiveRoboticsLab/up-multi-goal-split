@@ -38,17 +38,25 @@ def test_wcd():
     free = Fluent('free', BoolType(), l=loc)
     problem.add_fluent(free, default_initial_value=True)
 
-    nw, ne, sw, se = Object("nw", loc), Object("ne", loc), Object("sw", loc), Object("se", loc)        
-    problem.add_objects([nw, ne, sw, se])
-    problem.set_initial_value(connected(nw, ne), True)
-    problem.set_initial_value(connected(nw, sw), True)
-    problem.set_initial_value(connected(ne, nw), True)
-    problem.set_initial_value(connected(ne, se), True)
-    problem.set_initial_value(connected(sw, se), True)
-    problem.set_initial_value(connected(sw, nw), True)
-    problem.set_initial_value(connected(se, sw), True)
-    problem.set_initial_value(connected(se, ne), True)
+    grid_size = 5
+    cells = [
+        [Object("l_" + str(i) + "_" + str(j), loc) for i in range(grid_size)]
+        for j in range(grid_size)
+    ]
+    for row in cells:
+        problem.add_objects(row)
 
+    for i in range(grid_size):
+        for j in range(grid_size):
+            if i + 1 < grid_size:
+                problem.set_initial_value(connected(cells[i][j], cells[i+1][j]), True)
+            if i - 1 >= 0:
+                problem.set_initial_value(connected(cells[i][j], cells[i-1][j]), True)
+            if j + 1 < grid_size:
+                problem.set_initial_value(connected(cells[i][j], cells[i][j+1]), True)
+            if j - 1 >= 0:
+                problem.set_initial_value(connected(cells[i][j], cells[i][j-1]), True)
+    
 
     at = Fluent('at', BoolType(), l1=loc)
     problem.add_fluent(at, default_initial_value=False)
@@ -66,15 +74,24 @@ def test_wcd():
     problem.add_action(move)
 
 
-    problem.set_initial_value(at(nw), True)
-    problem.set_initial_value(free(nw), False)
+    problem.set_initial_value(at(cells[0][2]), True)
+    problem.set_initial_value(free(cells[0][2]), False)
+
+    goals = [[at(cells[4][0])], [at(cells[4][4])]]
+    problem.add_goal(goals[0][0])
+
+    print(problem)
+
+    planner = OneshotPlanner(name="fast-downward-opt")
+    sol = planner.solve(problem)
+    print(sol)
+
     
-    
-    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(sw)], [at(ne)]])
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = [[at(cells[4][0])], [at(cells[4][4])]])
     res = mgs.compile(problem)
     print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward")
+    planner = OneshotPlanner(name="fast-downward-opt")
     sol = planner.solve(res.problem)
     print(sol)
 
