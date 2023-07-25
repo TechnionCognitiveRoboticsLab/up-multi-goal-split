@@ -80,14 +80,14 @@ def test_wcd():
     goals = [[at(cells[4][0])], [at(cells[4][4])]]
     problem.add_goal(goals[0][0])
 
-    print(problem)
+    # print(problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(problem)
-    print(sol)
+    # planner = OneshotPlanner(name="fast-downward-opt")
+    # sol = planner.solve(problem)
+    # print(sol)
 
     
-    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = [[at(cells[4][0])], [at(cells[4][4])]])
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(cells[4][0])], [at(cells[4][4])], [at(cells[3][3])]])    
     res = mgs.compile(problem)
     print(res.problem)
 

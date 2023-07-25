@@ -81,12 +81,15 @@ class FluentMapSubstituter(IdentityDagWalker):
 class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     '''MultiGoal Split (abstract) class:
     this class requires a problem with multiple goals, and creates a classical planning problem in which the agents can move together and then split and move alone.'''
-    def __init__(self, type : MultiGoalSplitType, goals: List[List["up.model.fnode.FNode"]]):
+    def __init__(self, 
+                 type : MultiGoalSplitType, 
+                 goals: List[List["up.model.fnode.FNode"]]):
         engines.engine.Engine.__init__(self)
         CompilerMixin.__init__(self, CompilationKind.MULTI_GOAL_SPLIT)
         self.compilation_type = type
         self.goals = goals # TODO: get this from the multi-goal problem class when we have it
         self.BIGNUM = 1000
+        self._achieve_goals_sequentially = True
         
     @staticmethod
     def get_credits(**kwargs) -> Optional['Credits']:
@@ -96,6 +99,15 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     def name(self):
         return "mgs"
     
+    @property
+    def achieve_goals_sequentially(self):
+        return self._achieve_goals_sequentially
+    
+    @achieve_goals_sequentially.setter
+    def achieve_goals_sequentially(self, val):
+        self._achieve_goals_sequentially = val
+    
+        
     @staticmethod
     def supports_compilation(compilation_kind: CompilationKind) -> bool:
         return compilation_kind == CompilationKind.MULTI_GOAL_SPLIT
@@ -144,6 +156,14 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         unsplit_fluent = Fluent("unsplit")
         new_problem.add_fluent(split_fluent, default_initial_value = False)
         new_problem.add_fluent(unsplit_fluent, default_initial_value = True)
+        
+        # Add done_i fluents
+        done_map = {}
+        if self.achieve_goals_sequentially:
+            for i, g in enumerate(self.goals):
+                done_map[i] = Fluent("done__" + str(i))
+                new_problem.add_fluent(done_map[i], default_initial_value=False)
+
 
         fsub = FluentMapSubstituter(problem, new_problem.environment)
 
@@ -161,15 +181,28 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_problem.add_goal(new_goal_fact)
 
         # Actions
+
+        # Split action
         split_action = InstantaneousAction("do_split")
         split_action.add_precondition(unsplit_fluent)
         split_action.add_effect(unsplit_fluent, False)
         split_action.add_effect(split_fluent, True)
         new_problem.add_action(split_action)
 
-
         new_action_costs_dict = {split_action : 0}
 
+        # Done Actions
+        if self.achieve_goals_sequentially:
+            for i,g in enumerate(self.goals):
+                done_action = InstantaneousAction("end__" + str(i))
+                for goal_fact in g:
+                    done_action.add_precondition(fsub.substitute(goal_fact, fluent_map, i))
+                done_action.add_effect(done_map[i], True)
+                new_action_costs_dict[done_action] = 0
+                new_problem.add_action(done_action)
+
+
+        # Regular Actions
         for action in problem.actions:
             original_action_cost = 1
             for qm in problem.quality_metrics:
@@ -207,6 +240,8 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_action = InstantaneousAction(
                     "__".join([goal_name, action.name]), _parameters=d)
                 new_action.add_precondition(split_fluent)
+                if self.achieve_goals_sequentially and i > 0:
+                    new_action.add_precondition(done_map[i-1])
                 for fact in action.preconditions:
                     new_action.add_precondition(fsub.substitute(fact, fluent_map, i))                
                 for effect in action.effects:
