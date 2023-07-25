@@ -87,7 +87,7 @@ def test_wcd():
     # print(sol)
 
     
-    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(cells[4][0])], [at(cells[4][4])], [at(cells[3][3])]])    
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(cells[4][0])], [at(cells[4][4])], [at(cells[3][3])]])        
     res = mgs.compile(problem)
     print(res.problem)
 

@@ -77,6 +77,22 @@ class FluentMapSubstituter(IdentityDagWalker):
         
         return FluentExp(agent_fluent, args)
 
+class MultiGoalSplitCostFunctions:
+    epsilon = 0.001
+
+    def zero_cost(original_cost):
+        return 0
+    
+    def epsilon_cost(original_cost):
+        return original_cost
+    
+    def epsilon_discount(original_cost):
+        return original_cost * (1.0 / MultiGoalSplitCostFunctions.epsilon) - 1
+
+    def same_cost(original_cost):
+        return original_cost * (1.0 / MultiGoalSplitCostFunctions.epsilon)
+    
+
 
 class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     '''MultiGoal Split (abstract) class:
@@ -87,9 +103,15 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         engines.engine.Engine.__init__(self)
         CompilerMixin.__init__(self, CompilationKind.MULTI_GOAL_SPLIT)
         self.compilation_type = type
-        self.goals = goals # TODO: get this from the multi-goal problem class when we have it
-        self.BIGNUM = 1000
+        self.goals = goals # TODO: get this from the multi-goal problem class when we have it        
         self._achieve_goals_sequentially = True
+
+        if self.compilation_type == MultiGoalSplitType.CENTROID:
+            self._cost_together = MultiGoalSplitCostFunctions.epsilon_cost
+        else:
+            self._cost_together = MultiGoalSplitCostFunctions.epsilon_discount
+        self._cost_split = MultiGoalSplitCostFunctions.same_cost
+        
         
     @staticmethod
     def get_credits(**kwargs) -> Optional['Credits']:
@@ -99,6 +121,22 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     def name(self):
         return "mgs"
     
+    @property
+    def cost_together(self):
+        return self._cost_together
+    
+    @cost_together.setter
+    def cost_together(self, val):
+        self._cost_together = val
+
+    @property
+    def cost_split(self):
+        return self._cost_split
+    
+    @cost_split.setter
+    def cost_split(self, val):
+        self._cost_split = val
+
     @property
     def achieve_goals_sequentially(self):
         return self._achieve_goals_sequentially
@@ -229,10 +267,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
             new_problem.add_action(together_action)
             new_to_old[together_action] = action
 
-            if self.compilation_type == MultiGoalSplitType.WCD:
-                new_cost = original_action_cost * len(self.goals) * self.BIGNUM - 1
-            elif self.compilation_type == MultiGoalSplitType.CENTROID:
-                new_cost = 0
+            new_cost = self._cost_together(original_action_cost * len(self.goals))
             new_action_costs_dict[together_action] = new_cost
 
             for i,g in enumerate(self.goals):
@@ -247,14 +282,12 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 for effect in action.effects:
                     new_action.add_effect(fsub.substitute(effect.fluent, fluent_map, i), effect.value)
                 new_problem.add_action(new_action)
-
-                if self.compilation_type == MultiGoalSplitType.WCD:
-                    new_cost = original_action_cost * self.BIGNUM 
-                elif self.compilation_type == MultiGoalSplitType.CENTROID:
-                    new_cost = original_action_cost
-                new_action_costs_dict[new_action] = new_cost
                 new_to_old[new_action] = action
-        
+
+                new_cost = self._cost_split(original_action_cost)
+                new_action_costs_dict[new_action] = new_cost
+
+
         new_problem.add_quality_metric(MinimizeActionCosts(new_action_costs_dict))
 
         
