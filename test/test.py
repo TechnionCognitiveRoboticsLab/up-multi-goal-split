@@ -24,9 +24,7 @@ from collections import namedtuple
 import random
 import os
 
-
-
-def test_wcd():
+def create_problem(grid_size = 5):
     problem = Problem()
     
     loc = UserType("loc")
@@ -38,7 +36,7 @@ def test_wcd():
     free = Fluent('free', BoolType(), l=loc)
     problem.add_fluent(free, default_initial_value=True)
 
-    grid_size = 5
+    
     cells = [
         [Object("l_" + str(i) + "_" + str(j), loc) for i in range(grid_size)]
         for j in range(grid_size)
@@ -74,26 +72,89 @@ def test_wcd():
     problem.add_action(move)
 
 
-    problem.set_initial_value(at(cells[0][2]), True)
-    problem.set_initial_value(free(cells[0][2]), False)
+    problem.set_initial_value(at(cells[0][0]), True)
+    problem.set_initial_value(free(cells[0][0]), False)
 
-    goals = [[at(cells[4][0])], [at(cells[4][4])]]
+    goals = [
+        [at(cells[grid_size - 1][0])], 
+        [at(cells[0][grid_size - 1])],
+        [at(cells[grid_size - 1][grid_size - 1])],
+        [at(cells[0][grid_size - 2])],
+        [at(cells[1][grid_size - 1])]        
+        ]
     problem.add_goal(goals[0][0])
+    return problem, goals
 
-    # print(problem)
-
-    # planner = OneshotPlanner(name="fast-downward-opt")
-    # sol = planner.solve(problem)
-    # print(sol)
-
+def test_wcd():
+    problem, goals = create_problem()
     
-    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(cells[4][0])], [at(cells[4][4])], [at(cells[3][3])]])        
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)            
     res = mgs.compile(problem)
-    print(res.problem)
+    #print(res.problem)
 
     planner = OneshotPlanner(name="fast-downward-opt")
     sol = planner.solve(res.problem)
-    print(sol)
+    print("WCD", sol)
+
+def test_wcd_without_achieve_goals_sequentially():
+    problem, goals = create_problem()
+    
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)
+    mgs.achieve_goals_sequentially = False               
+    res = mgs.compile(problem)
+    #print(res.problem)
+
+    planner = OneshotPlanner(name="fast-downward-opt")
+    sol = planner.solve(res.problem)
+    print("WCD", sol)    
+
+def test_centroid_without_achieve_goals_sequentially():
+    problem, goals = create_problem()
+    
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+    mgs.achieve_goals_sequentially = False   
+    res = mgs.compile(problem)
+    #print(res.problem)
+
+    planner = OneshotPlanner(name="fast-downward-opt")
+    sol = planner.solve(res.problem)
+    print("CENTROID", sol)    
+
+def test_centroid():
+    problem, goals = create_problem()
+    
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)            
+    res = mgs.compile(problem)
+    #print(res.problem)
+
+    planner = OneshotPlanner(name="fast-downward-opt")
+    sol = planner.solve(res.problem)
+    print("CENTROID", sol)    
+
+
+def test_mincover_budget():
+    problem, goals = create_problem(grid_size = 3)
+    
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+    mgs.budget_from_split = 1
+    res = mgs.compile(problem)
+    #print(res.problem)
+
+    planner = OneshotPlanner(name="tamer")
+    sol = planner.solve(res.problem)
+    print("MIN-COVER-1", sol)
+
+    mgs.budget_from_split = 2
+    res = mgs.compile(problem)
+    #print(res.problem)
+
+    planner = OneshotPlanner(name="tamer")
+    sol = planner.solve(res.problem)
+    print("MIN-COVER-2", sol)
 
 
 test_wcd()
+test_centroid()
+test_wcd_without_achieve_goals_sequentially()
+test_centroid_without_achieve_goals_sequentially()
+test_mincover_budget()

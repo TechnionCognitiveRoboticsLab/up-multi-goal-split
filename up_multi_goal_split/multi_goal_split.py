@@ -105,6 +105,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         self.compilation_type = type
         self.goals = goals # TODO: get this from the multi-goal problem class when we have it        
         self._achieve_goals_sequentially = True
+        self._budget_from_split = None
 
         if self.compilation_type == MultiGoalSplitType.CENTROID:
             self._cost_together = MultiGoalSplitCostFunctions.epsilon_cost
@@ -145,6 +146,13 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     def achieve_goals_sequentially(self, val):
         self._achieve_goals_sequentially = val
     
+    @property
+    def budget_from_split(self):
+        return self._budget_from_split
+    
+    @budget_from_split.setter
+    def budget_from_split(self, val):
+        self._budget_from_split = val
         
     @staticmethod
     def supports_compilation(compilation_kind: CompilationKind) -> bool:
@@ -189,6 +197,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 g_fluent = Fluent(fluent_name, f.type, f.signature)
                 new_problem.add_fluent(g_fluent, default_initial_value=problem.fluents_defaults[f])
                 fluent_map[f][i] = g_fluent
+
         # Add split/unplit fluents
         split_fluent = Fluent("split")
         unsplit_fluent = Fluent("unsplit")
@@ -201,6 +210,14 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
             for i, g in enumerate(self.goals):
                 done_map[i] = Fluent("done__" + str(i))
                 new_problem.add_fluent(done_map[i], default_initial_value=False)
+
+        # Add B_i fluents
+        budget_map = {}
+        if self.budget_from_split is not None:
+            for i, g in enumerate(self.goals):
+                budget_map[i] = Fluent("budget__" + str(i), RealType(0, self.budget_from_split))
+                new_problem.add_fluent(budget_map[i], default_initial_value=self.budget_from_split)
+
 
 
         fsub = FluentMapSubstituter(problem, new_problem.environment)
@@ -277,6 +294,9 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_action.add_precondition(split_fluent)
                 if self.achieve_goals_sequentially and i > 0:
                     new_action.add_precondition(done_map[i-1])
+                if self.budget_from_split is not None:
+                    new_action.add_precondition(GE(budget_map[i], original_action_cost))
+                    new_action.add_decrease_effect(budget_map[i], original_action_cost)
                 for fact in action.preconditions:
                     new_action.add_precondition(fsub.substitute(fact, fluent_map, i))                
                 for effect in action.effects:

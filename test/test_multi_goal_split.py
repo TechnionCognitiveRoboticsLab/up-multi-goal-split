@@ -30,9 +30,9 @@ class TestProblem(TestCase):
     def setUp(self):
         TestCase.setUp(self)        
 
-    def test_wcd(self):
+    def create_problem(self, grid_size = 5):
         problem = Problem()
-    
+        
         loc = UserType("loc")
 
         # Environment     
@@ -42,17 +42,25 @@ class TestProblem(TestCase):
         free = Fluent('free', BoolType(), l=loc)
         problem.add_fluent(free, default_initial_value=True)
 
-        nw, ne, sw, se = Object("nw", loc), Object("ne", loc), Object("sw", loc), Object("se", loc)        
-        problem.add_objects([nw, ne, sw, se])
-        problem.set_initial_value(connected(nw, ne), True)
-        problem.set_initial_value(connected(nw, sw), True)
-        problem.set_initial_value(connected(ne, nw), True)
-        problem.set_initial_value(connected(ne, se), True)
-        problem.set_initial_value(connected(sw, se), True)
-        problem.set_initial_value(connected(sw, nw), True)
-        problem.set_initial_value(connected(se, sw), True)
-        problem.set_initial_value(connected(se, ne), True)
+        
+        cells = [
+            [Object("l_" + str(i) + "_" + str(j), loc) for i in range(grid_size)]
+            for j in range(grid_size)
+        ]
+        for row in cells:
+            problem.add_objects(row)
 
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if i + 1 < grid_size:
+                    problem.set_initial_value(connected(cells[i][j], cells[i+1][j]), True)
+                if i - 1 >= 0:
+                    problem.set_initial_value(connected(cells[i][j], cells[i-1][j]), True)
+                if j + 1 < grid_size:
+                    problem.set_initial_value(connected(cells[i][j], cells[i][j+1]), True)
+                if j - 1 >= 0:
+                    problem.set_initial_value(connected(cells[i][j], cells[i][j-1]), True)
+        
 
         at = Fluent('at', BoolType(), l1=loc)
         problem.add_fluent(at, default_initial_value=False)
@@ -70,17 +78,86 @@ class TestProblem(TestCase):
         problem.add_action(move)
 
 
-        problem.set_initial_value(at(nw), True)
-        problem.set_initial_value(free(nw), False)
-        
-        
-        mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = [[at(sw)], [at(ne)]])
-        res = mgs.compile(problem)
-        print(res.problem)
+        problem.set_initial_value(at(cells[0][0]), True)
+        problem.set_initial_value(free(cells[0][0]), False)
 
-        planner = OneshotPlanner(name="fast-downward")
+        goals = [
+            [at(cells[grid_size - 1][0])], 
+            [at(cells[0][grid_size - 1])],
+            [at(cells[grid_size - 1][grid_size - 1])],
+            [at(cells[0][grid_size - 2])],
+            [at(cells[1][grid_size - 1])]        
+            ]
+        problem.add_goal(goals[0][0])
+        return problem, goals
+
+    def test_wcd(self):
+        problem, goals = self.create_problem()
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)            
+        res = mgs.compile(problem)
+        #print(res.problem)
+
+        planner = OneshotPlanner(name="fast-downward-opt")
         sol = planner.solve(res.problem)
-        print(sol)
+        print("WCD", sol)
+
+    def test_wcd_without_achieve_goals_sequentially(self):
+        problem, goals = self.create_problem()
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)
+        mgs.achieve_goals_sequentially = False               
+        res = mgs.compile(problem)
+        #print(res.problem)
+
+        planner = OneshotPlanner(name="fast-downward-opt")
+        sol = planner.solve(res.problem)
+        print("WCD", sol)    
+
+    def test_centroid_without_achieve_goals_sequentially(self):
+        problem, goals = self.create_problem()
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+        mgs.achieve_goals_sequentially = False   
+        res = mgs.compile(problem)
+        #print(res.problem)
+
+        planner = OneshotPlanner(name="fast-downward-opt")
+        sol = planner.solve(res.problem)
+        print("CENTROID", sol)    
+
+    def test_centroid(self):
+        problem, goals = self.create_problem()
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)            
+        res = mgs.compile(problem)
+        #print(res.problem)
+
+        planner = OneshotPlanner(name="fast-downward-opt")
+        sol = planner.solve(res.problem)
+        print("CENTROID", sol)    
+
+
+    def test_mincover_budget(self):
+        problem, goals = self.create_problem(grid_size = 3)
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+        mgs.budget_from_split = 1
+        res = mgs.compile(problem)
+        #print(res.problem)
+
+        planner = OneshotPlanner(name="tamer")
+        sol = planner.solve(res.problem)
+        print("MIN-COVER-1", sol)
+        self.assertIn(sol.status, [PlanGenerationResultStatus.UNSOLVABLE_INCOMPLETELY, PlanGenerationResultStatus.UNSOLVABLE_PROVEN])
+
+        mgs.budget_from_split = 2
+        res = mgs.compile(problem)        
+
+        planner = OneshotPlanner(name="tamer")
+        sol = planner.solve(res.problem)
+        print("MIN-COVER-2", sol)
+        self.assertIn(sol.status, [PlanGenerationResultStatus.SOLVED_SATISFICING, PlanGenerationResultStatus.SOLVED_OPTIMALLY])
 
 
             
