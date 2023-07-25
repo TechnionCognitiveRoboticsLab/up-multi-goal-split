@@ -105,6 +105,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         self.compilation_type = type
         self.goals = goals # TODO: get this from the multi-goal problem class when we have it        
         self._achieve_goals_sequentially = True
+        self._take_turns_after_split = False
         self._budget_from_split = None
 
         if self.compilation_type == MultiGoalSplitType.CENTROID:
@@ -145,6 +146,14 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     @achieve_goals_sequentially.setter
     def achieve_goals_sequentially(self, val):
         self._achieve_goals_sequentially = val
+
+    @property
+    def take_turns_after_split(self):
+        return self._take_turns_after_split
+    
+    @take_turns_after_split.setter
+    def take_turns_after_split(self, val):
+        self._take_turns_after_split = val        
     
     @property
     def budget_from_split(self):
@@ -176,6 +185,11 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         return problem_kind <= MultiGoalSplit.supported_kind()
     
     def _compile(self, problem: "up.model.AbstractProblem", compilation_kind: "up.engines.CompilationKind") -> CompilerResult:
+        if self.take_turns_after_split and self.achieve_goals_sequentially:
+            raise unified_planning.exceptions.UPUsageError("Unsupported combinations: take_turns_after_split and achieve_goals_sequentially")
+        if self.take_turns_after_split and self.budget_from_split is not None:
+            raise unified_planning.exceptions.UPUsageError("Unsupported combinations: take_turns_after_split and budget_from_split != None")
+        
         new_to_old: Dict[Action, Action] = {}
         
         new_problem = Problem(f'{self.name}_{problem.name}')
@@ -210,6 +224,14 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
             for i, g in enumerate(self.goals):
                 done_map[i] = Fluent("done__" + str(i))
                 new_problem.add_fluent(done_map[i], default_initial_value=False)
+
+        # Add turn_i fluents
+        turn_map = {}
+        if self.take_turns_after_split:
+            for i, g in enumerate(self.goals):
+                turn_map[i] = Fluent("turn__" + str(i))                
+                default_initial_value = (i == 0)
+                new_problem.add_fluent(turn_map[i], default_initial_value=default_initial_value)
 
         # Add B_i fluents
         budget_map = {}
@@ -256,6 +278,22 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_action_costs_dict[done_action] = 0
                 new_problem.add_action(done_action)
 
+        # Noop actions
+        if self.take_turns_after_split:
+            for i,g in enumerate(self.goals):
+                noop_action = InstantaneousAction("noop__" + str(i))
+                for goal_fact in g:
+                    noop_action.add_precondition(fsub.substitute(goal_fact, fluent_map, i))
+                noop_action.add_precondition(split_fluent)
+                noop_action.add_precondition(turn_map[i])
+                noop_action.add_effect(turn_map[i], False)
+                noop_action.add_effect(turn_map[(i + 1) % len(self.goals)], True)
+                if i == 0:
+                    new_cost = MultiGoalSplitCostFunctions.same_cost(1)
+                else:
+                    new_cost = 0
+                new_problem.add_action(noop_action)
+                new_action_costs_dict[noop_action] = new_cost
 
         # Regular Actions
         for action in problem.actions:
@@ -263,10 +301,12 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
             for qm in problem.quality_metrics:
                 if qm.is_minimize_action_costs():
                     original_action_cost = qm.get_action_cost(action)
+                    if original_action_cost != 1 and self.take_turns_after_split:
+                        raise unified_planning.exceptions.UPUsageError("take_turns_after_split can not handle non-unit action costs")
                 elif qm.is_minimize_sequential_plan_length():
                     original_action_cost = 1
                 else:
-                    unified_planning.exceptions.UPUsageError("can not handle metric ", qm)
+                    raise unified_planning.exceptions.UPUsageError("can not handle metric ", qm)
 
             d = {}
             for p in action.parameters:
@@ -292,11 +332,17 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_action = InstantaneousAction(
                     "__".join([goal_name, action.name]), _parameters=d)
                 new_action.add_precondition(split_fluent)
+
                 if self.achieve_goals_sequentially and i > 0:
                     new_action.add_precondition(done_map[i-1])
                 if self.budget_from_split is not None:
                     new_action.add_precondition(GE(budget_map[i], original_action_cost))
                     new_action.add_decrease_effect(budget_map[i], original_action_cost)
+                if self.take_turns_after_split:
+                    new_action.add_precondition(turn_map[i])
+                    new_action.add_effect(turn_map[i], False)
+                    new_action.add_effect(turn_map[(i + 1) % len(self.goals)], True)
+
                 for fact in action.preconditions:
                     new_action.add_precondition(fsub.substitute(fact, fluent_map, i))                
                 for effect in action.effects:
@@ -304,7 +350,13 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 new_problem.add_action(new_action)
                 new_to_old[new_action] = action
 
-                new_cost = self._cost_split(original_action_cost)
+                if self.take_turns_after_split:
+                    if i == 0:
+                        new_cost = self._cost_split(original_action_cost)
+                    else:
+                        new_cost = 0
+                else:        
+                    new_cost = self._cost_split(original_action_cost)
                 new_action_costs_dict[new_action] = new_cost
 
 

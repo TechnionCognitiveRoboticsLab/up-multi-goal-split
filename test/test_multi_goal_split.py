@@ -159,5 +159,18 @@ class TestProblem(TestCase):
         print("MIN-COVER-2", sol)
         self.assertIn(sol.status, [PlanGenerationResultStatus.SOLVED_SATISFICING, PlanGenerationResultStatus.SOLVED_OPTIMALLY])
 
+    def test_mincover_turns(self):
+        problem, goals = self.create_problem()
+        
+        mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+        mgs.take_turns_after_split = True
+        mgs.achieve_goals_sequentially = False
+        #mgs.cost_together = MultiGoalSplitCostFunctions.zero_cost
+        res = mgs.compile(problem)
+        print(res.problem)
+
+        planner = OneshotPlanner(name="fast-downward-opt")
+        sol = planner.solve(res.problem)
+        print("MIN-COVER-TURNS", sol)
 
             

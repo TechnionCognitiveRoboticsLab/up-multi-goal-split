@@ -152,9 +152,25 @@ def test_mincover_budget():
     sol = planner.solve(res.problem)
     print("MIN-COVER-2", sol)
 
+def test_mincover_turns():
+    problem, goals = create_problem()
+    
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+    mgs.take_turns_after_split = True
+    mgs.achieve_goals_sequentially = False
+    #mgs.cost_together = MultiGoalSplitCostFunctions.zero_cost
+    res = mgs.compile(problem)
+    print(res.problem)
+
+    planner = OneshotPlanner(name="fast-downward-opt")
+    sol = planner.solve(res.problem)
+    print("MIN-COVER-TURNS", sol)
+
+
 
 test_wcd()
 test_centroid()
 test_wcd_without_achieve_goals_sequentially()
 test_centroid_without_achieve_goals_sequentially()
 test_mincover_budget()
+test_mincover_turns()
