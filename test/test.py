@@ -89,23 +89,19 @@ def test_wcd():
     problem, goals = create_problem()
     
     mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)            
-    res = mgs.compile(problem)
-    #print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+
     print("WCD", sol)
 
 def test_wcd_without_achieve_goals_sequentially():
     problem, goals = create_problem()
     
     mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)
-    mgs.achieve_goals_sequentially = False               
-    res = mgs.compile(problem)
-    #print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+    mgs.achieve_goals_sequentially = False               
+
     print("WCD", sol)    
 
 def test_centroid_without_achieve_goals_sequentially():
@@ -113,22 +109,18 @@ def test_centroid_without_achieve_goals_sequentially():
     
     mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
     mgs.achieve_goals_sequentially = False   
-    res = mgs.compile(problem)
-    #print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+    
     print("CENTROID", sol)    
 
 def test_centroid():
     problem, goals = create_problem()
     
     mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)            
-    res = mgs.compile(problem)
-    #print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+
     print("CENTROID", sol)    
 
 
@@ -137,19 +129,11 @@ def test_mincover_budget():
     
     mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
     mgs.budget_from_split = 1
-    res = mgs.compile(problem)
-    #print(res.problem)
-
-    planner = OneshotPlanner(name="tamer")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="tamer")
     print("MIN-COVER-1", sol)
 
     mgs.budget_from_split = 2
-    res = mgs.compile(problem)
-    #print(res.problem)
-
-    planner = OneshotPlanner(name="tamer")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="tamer")
     print("MIN-COVER-2", sol)
 
 def test_mincover_turns():
@@ -158,19 +142,28 @@ def test_mincover_turns():
     mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
     mgs.take_turns_after_split = True
     mgs.achieve_goals_sequentially = False
-    #mgs.cost_together = MultiGoalSplitCostFunctions.zero_cost
-    res = mgs.compile(problem)
-    print(res.problem)
 
-    planner = OneshotPlanner(name="fast-downward-opt")
-    sol = planner.solve(res.problem)
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+    
     print("MIN-COVER-TURNS", sol)
 
+def test_deception_point():
+    problem, goals = create_problem()
+
+    mgs = deception_point_compilation(goals)
+
+    sol = mgs.solve_and_get_plan_until_split(problem, planner_name="fast-downward-opt")
+    
+    print("DECEPTION-POINT", sol)
 
 
 test_wcd()
-test_centroid()
 test_wcd_without_achieve_goals_sequentially()
+
+test_deception_point()
+
+test_centroid()
 test_centroid_without_achieve_goals_sequentially()
+
 test_mincover_budget()
 test_mincover_turns()

@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""This module defines the robustness verification compiler classes"""
+"""This module defines the multi-goal split compilation classes"""
 
 import unified_planning as up
+import unified_planning.engines.results
 from unified_planning.engines.mixins.compiler import CompilationKind, CompilerMixin
-from unified_planning.engines.results import CompilerResult
+from unified_planning.engines.results import CompilerResult, PlanGenerationResultStatus, PlanGenerationResult
 from unified_planning.model.problem_kind import ProblemKind
 import unified_planning.exceptions
 from typing import List, Dict, Union, Optional
@@ -28,7 +29,9 @@ from unified_planning.model import *
 from unified_planning.shortcuts import *
 from unified_planning.model.walkers.identitydag import IdentityDagWalker
 from unified_planning.engines.compilers.utils import replace_action, get_fresh_name
+from unified_planning.plans import SequentialPlan
 from functools import partial
+import warnings
 
 credits = Credits('Multi Goal Split',
                   'Technion Cognitive Robotics Lab (cf. https://github.com/TechnionCognitiveRoboticsLab)',
@@ -124,6 +127,10 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         return "mgs"
     
     @property
+    def split_action_name(self):
+        return "do_split"
+    
+    @property
     def cost_together(self):
         return self._cost_together
     
@@ -183,6 +190,32 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
     @staticmethod
     def supports(problem_kind):
         return problem_kind <= MultiGoalSplit.supported_kind()
+    
+    def get_plan_until_split(self, plan : SequentialPlan):
+        actions_until_split = []
+        for ai in plan.actions:
+            if ai.action.name == self.split_action_name:
+                break
+            actions_until_split.append(ai)
+        return SequentialPlan(actions_until_split)
+    
+    def solve_and_get_plan_until_split(self, problem : Problem, planner_name = Optional[str]):        
+        mgs_result = self.compile(problem)
+    
+        compiled_problem = mgs_result.problem
+        with OneshotPlanner(name=planner_name, problem_kind=mgs_result.problem.kind, optimality_guarantee=OptimalityGuarantee.SOLVED_OPTIMALLY) as planner:
+            result = planner.solve(mgs_result.problem)
+            if result.status in unified_planning.engines.results.POSITIVE_OUTCOMES:
+                if result.status != PlanGenerationResultStatus.SOLVED_OPTIMALLY:
+                    warnings.warn(
+                        "Planner did not provide an optimality guarantee, result might be incorrect", UserWarning
+                    )            
+                full_plan = result.plan
+                compiled_plan_until_split = self.get_plan_until_split(full_plan)
+                orig_plan_until_split = compiled_plan_until_split.replace_action_instances(mgs_result.map_back_action_instance)
+                return orig_plan_until_split
+        return None
+
     
     def _compile(self, problem: "up.model.AbstractProblem", compilation_kind: "up.engines.CompilationKind") -> CompilerResult:
         if self.take_turns_after_split and self.achieve_goals_sequentially:
@@ -260,11 +293,13 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         # Actions
 
         # Split action
-        split_action = InstantaneousAction("do_split")
+        split_action = InstantaneousAction(self.split_action_name)
         split_action.add_precondition(unsplit_fluent)
         split_action.add_effect(unsplit_fluent, False)
         split_action.add_effect(split_fluent, True)
         new_problem.add_action(split_action)
+        new_to_old[split_action] = None
+        
 
         new_action_costs_dict = {split_action : 0}
 
@@ -277,6 +312,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                 done_action.add_effect(done_map[i], True)
                 new_action_costs_dict[done_action] = 0
                 new_problem.add_action(done_action)
+                new_to_old[done_action] = None
 
         # Noop actions
         if self.take_turns_after_split:
@@ -294,6 +330,7 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
                     new_cost = 0
                 new_problem.add_action(noop_action)
                 new_action_costs_dict[noop_action] = new_cost
+                new_to_old[noop_action] = None
 
         # Regular Actions
         for action in problem.actions:
@@ -366,3 +403,24 @@ class MultiGoalSplit(engines.engine.Engine, CompilerMixin):
         return CompilerResult(
             new_problem, partial(replace_action, map=new_to_old), self.name
         )  
+
+def wcd_compilation(goals: List[List["up.model.fnode.FNode"]]):
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)
+    return mgs
+
+def deception_point_compilation(goals: List[List["up.model.fnode.FNode"]]):
+    #TODO: check this is actually the right thing
+    mgs = MultiGoalSplit(MultiGoalSplitType.WCD, goals = goals)
+    mgs.take_turns_after_split = True
+    mgs.achieve_goals_sequentially = False
+    return mgs
+
+def centroid_compilation(goals: List[List["up.model.fnode.FNode"]]):
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+    return mgs
+
+def mincover_compilation(goals: List[List["up.model.fnode.FNode"]]):
+    mgs = MultiGoalSplit(MultiGoalSplitType.CENTROID, goals = goals)
+    mgs.take_turns_after_split = True
+    mgs.achieve_goals_sequentially = False
+    return mgs
